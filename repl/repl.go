@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/ajwerner/monkey/evaluator"
 	"github.com/ajwerner/monkey/lexer"
-	"github.com/ajwerner/monkey/token"
+	"github.com/ajwerner/monkey/parser"
 )
 
 const PROMPT = ">> "
@@ -22,8 +23,24 @@ func Start(in io.Reader, out io.Writer) {
 		}
 		line := scanner.Text()
 		l := lexer.New(line)
-		for tok := l.NextToken(); tok.Type != token.EOF; tok = l.NextToken() {
-			fmt.Fprintf(out, "%+v\n", tok)
+		p := parser.New(l)
+
+		program := p.ParseProgram()
+		if len(p.Errors()) != 0 {
+			printParserErrors(out, p.Errors())
+			continue
 		}
+
+		evaluated := evaluator.Eval(program)
+		if evaluated != nil {
+			io.WriteString(out, evaluated.Inspect())
+			io.WriteString(out, "\n")
+		}
+	}
+}
+
+func printParserErrors(out io.Writer, errors []error) {
+	for _, err := range errors {
+		io.WriteString(out, "\t"+err.Error()+"\n")
 	}
 }
