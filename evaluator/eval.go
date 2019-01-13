@@ -7,8 +7,8 @@ import (
 	"github.com/ajwerner/monkey/object"
 )
 
-const TRUE = object.Boolean(true)
-const FALSE = object.Boolean(false)
+const TRUE = object.Bool(true)
+const FALSE = object.Bool(false)
 
 var NULL = object.Null{}
 
@@ -48,8 +48,14 @@ func Eval(node ast.Node, env *object.Environment) object.Object {
 		params := node.Parameters
 		body := node.Body
 		return &object.Function{Parameters: params, Env: env, Body: body}
-	case *ast.Boolean:
-		return object.Boolean(node.Value)
+	case *ast.ArrayLiteral:
+		elements := evalExpressions(node.Elements, env)
+		if len(elements) == 1 && isError(elements[0]) {
+			return elements[0]
+		}
+		return (*object.Array)(&elements)
+	case *ast.Bool:
+		return object.Bool(node.Value)
 	case *ast.Identifier:
 		return evalIdentifier(node, env)
 	case *ast.PrefixExpression:
@@ -81,6 +87,18 @@ func Eval(node ast.Node, env *object.Environment) object.Object {
 		}
 
 		return applyFunction(function, args)
+	case *ast.IndexExpression:
+		left := Eval(node.Left, env)
+		if isError(left) {
+			return left
+		}
+		index := Eval(node.Index, env)
+		if isError(index) {
+			return index
+		}
+		return evalIndexExpression(left, index)
+	case *ast.HashLiteral:
+		return evalHashLiteral(node, env)
 	}
 
 	return nil
@@ -127,7 +145,7 @@ func extendFunctionEnv(fn *object.Function, args []object.Object) *object.Enviro
 }
 
 func unwrapReturnValue(obj object.Object) object.Object {
-	if returnValue, ok := obj.(*object.ReturnValue); ok {
+	if returnValue, ok := obj.(object.ReturnValue); ok {
 		return returnValue.Value
 	}
 
@@ -191,7 +209,7 @@ func evalPrefixExpression(operator string, right object.Object) object.Object {
 
 func evalBangOperatorExpression(right object.Object) object.Object {
 	switch v := right.(type) {
-	case object.Boolean:
+	case object.Bool:
 		return !v
 	case object.Null:
 		return TRUE
@@ -208,9 +226,9 @@ func evalInfixExpression(operator string, left, right object.Object) object.Obje
 	case lt == object.STRING && rt == object.STRING:
 		return evalStringInfixExpression(operator, left.(object.String), right.(object.String))
 	case operator == "==":
-		return object.Boolean(left == right)
+		return object.Bool(left == right)
 	case operator == "!=":
-		return object.Boolean(left != right)
+		return object.Bool(left != right)
 	case lt != rt:
 		return newError("type mismatch: %s %s %s",
 			lt, operator, rt)
@@ -240,13 +258,13 @@ func evalIntegerInfixExpression(operator string, left, right object.Integer) obj
 	case "/":
 		return left / right
 	case "<":
-		return object.Boolean(left < right)
+		return object.Bool(left < right)
 	case ">":
-		return object.Boolean(left > right)
+		return object.Bool(left > right)
 	case "==":
-		return object.Boolean(left == right)
+		return object.Bool(left == right)
 	case "!=":
-		return object.Boolean(left != right)
+		return object.Bool(left != right)
 	default:
 		return newError("unknown operator: %s %s %s",
 			left.Type(), operator, right.Type())
@@ -265,6 +283,64 @@ func evalIfExpression(ie *ast.IfExpression, env *object.Environment) object.Obje
 		return Eval(ie.Alternative, env)
 	}
 	return NULL
+}
+
+func evalIndexExpression(left, index object.Object) object.Object {
+	switch {
+	case left.Type() == object.ARRAY && index.Type() == object.INTEGER:
+		return evalArrayIndexExpression(left, index)
+	case left.Type() == object.HASH:
+		return evalHashIndexExpression(left, index)
+	default:
+		return newError("index operator not supported: %s", left.Type())
+	}
+}
+
+func evalHashIndexExpression(hash, index object.Object) object.Object {
+	hashObject := hash.(object.Hash)
+	if !object.Hashable(index) {
+		return newError("unusable as hash key: %v", index.Type())
+	}
+
+	got, ok := hashObject[index]
+	if !ok {
+		return NULL
+	}
+	return got
+
+}
+
+func evalArrayIndexExpression(array, index object.Object) object.Object {
+	arrayObject := array.(*object.Array)
+	idx := index.(object.Integer)
+	max := object.Integer(len(*arrayObject) - 1)
+
+	if idx < 0 || idx > max {
+		return NULL
+	}
+
+	return (*arrayObject)[idx]
+}
+
+func evalHashLiteral(node *ast.HashLiteral, env *object.Environment) (o object.Object) {
+	defer func() {
+		if r := recover(); r != nil {
+			o = newError("unhashable key: %v", r)
+		}
+	}()
+	m := make(object.Hash, len(node.Pairs))
+	for keyNode, valueNode := range node.Pairs {
+		key := Eval(keyNode, env)
+		if isError(key) {
+			return key
+		}
+		value := Eval(valueNode, env)
+		if isError(value) {
+			return value
+		}
+		m[key] = value
+	}
+	return m
 }
 
 func isTruthy(obj object.Object) bool {

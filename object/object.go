@@ -1,7 +1,6 @@
 package object
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 
@@ -17,12 +16,14 @@ type ObjectType int
 const (
 	_ ObjectType = iota
 	INTEGER
-	BOOLEAN
+	BOOL
 	NULL
 	ERROR
 	FUNCTION
 	STRING
 	BUILTIN
+	ARRAY
+	HASH
 	RETURN_VALUE
 )
 
@@ -69,20 +70,19 @@ type Function struct {
 
 func (f *Function) Type() ObjectType { return FUNCTION }
 func (f *Function) Inspect() string {
-	var out bytes.Buffer
-
-	params := []string{}
-	for _, p := range f.Parameters {
-		params = append(params, p.String())
-	}
+	var out strings.Builder
 
 	out.WriteString("fn")
 	out.WriteString("(")
-	out.WriteString(strings.Join(params, ", "))
+	for i, p := range f.Parameters {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(p.String())
+	}
 	out.WriteString(") {\n")
 	out.WriteString(f.Body.String())
 	out.WriteString("\n}")
-
 	return out.String()
 }
 
@@ -110,10 +110,10 @@ type Object interface {
 	Inspect() string
 }
 
-type Boolean bool
+type Bool bool
 
-func (b Boolean) Type() ObjectType { return BOOLEAN }
-func (b Boolean) Inspect() string  { return fmt.Sprintf("%t", b) }
+func (b Bool) Type() ObjectType { return BOOL }
+func (b Bool) Inspect() string  { return fmt.Sprintf("%t", b) }
 
 type Null struct{}
 
@@ -126,3 +126,44 @@ type Builtin struct {
 
 func (b *Builtin) Type() ObjectType { return BUILTIN }
 func (b *Builtin) Inspect() string  { return "builtin function" }
+
+type Array []Object
+
+func (ao Array) Type() ObjectType { return ARRAY }
+func (ao Array) Inspect() string {
+	var out strings.Builder
+	out.WriteString("[")
+	for i, e := range ao {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(e.Inspect())
+	}
+	out.WriteString("]")
+	return out.String()
+}
+
+type Hash map[Object]Object
+
+func (h Hash) Type() ObjectType { return HASH }
+
+func (h Hash) Inspect() string {
+	var out strings.Builder
+	out.WriteString("{")
+	for k, v := range h {
+		out.WriteString(k.Inspect())
+		out.WriteString(": ")
+		out.WriteString(v.Inspect())
+	}
+	out.WriteString("}")
+	return out.String()
+}
+
+func Hashable(o Object) bool {
+	switch o.Type() {
+	case BOOL, STRING, INTEGER:
+		return true
+	default:
+		return false
+	}
+}

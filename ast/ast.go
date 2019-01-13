@@ -165,14 +165,14 @@ func (ie *InfixExpression) String() string {
 	return out.String()
 }
 
-type Boolean struct {
+type Bool struct {
 	Token token.Token
 	Value bool
 }
 
-func (b *Boolean) expressionNode()      {}
-func (b *Boolean) TokenLiteral() string { return b.Token.Literal }
-func (b *Boolean) String() string       { return b.Token.Literal }
+func (b *Bool) expressionNode()      {}
+func (b *Bool) TokenLiteral() string { return b.Token.Literal }
+func (b *Bool) String() string       { return b.Token.Literal }
 
 type IfExpression struct {
 	Token       token.Token // The 'if' token
@@ -226,15 +226,14 @@ func (fl *FunctionLiteral) expressionNode()      {}
 func (fl *FunctionLiteral) TokenLiteral() string { return fl.Token.Literal }
 func (fl *FunctionLiteral) String() string {
 	var out bytes.Buffer
-
-	params := []string{}
-	for _, p := range fl.Parameters {
-		params = append(params, p.String())
-	}
-
 	out.WriteString(fl.TokenLiteral())
 	out.WriteString("(")
-	out.WriteString(strings.Join(params, ", "))
+	for i, p := range fl.Parameters {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(p.String())
+	}
 	out.WriteString(") ")
 	out.WriteString(fl.Body.String())
 
@@ -291,5 +290,44 @@ func (al *ArrayLiteral) String() string {
 		out.WriteString(el.String())
 	}
 	out.WriteString("]")
+	return out.String()
+}
+
+type IndexExpression struct {
+	Token token.Token // The [ token
+	Left  Expression
+	Index Expression
+}
+
+func (ie *IndexExpression) expressionNode()      {}
+func (ie *IndexExpression) TokenLiteral() string { return ie.Token.Literal }
+func (ie *IndexExpression) String() string {
+	var out bytes.Buffer
+
+	out.WriteString("(")
+	out.WriteString(ie.Left.String())
+	out.WriteString("[")
+	out.WriteString(ie.Index.String())
+	out.WriteString("])")
+
+	return out.String()
+}
+
+type HashLiteral struct {
+	Token token.Token // the '{' token
+	Pairs map[Expression]Expression
+}
+
+func (hl *HashLiteral) expressionNode()      {}
+func (hl *HashLiteral) TokenLiteral() string { return hl.Token.Literal }
+func (hl *HashLiteral) String() string {
+	var out bytes.Buffer
+	out.WriteString("{")
+	for k, v := range hl.Pairs {
+		out.WriteString(k.String())
+		out.WriteString(":")
+		out.WriteString(v.String())
+	}
+	out.WriteString("}")
 	return out.String()
 }
