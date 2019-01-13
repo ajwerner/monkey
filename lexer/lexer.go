@@ -68,11 +68,17 @@ func (l *Lexer) NextToken() token.Token {
 		tok = newToken(token.LPAREN, l.curLit())
 	case ')':
 		tok = newToken(token.RPAREN, l.curLit())
-
 	case '{':
 		tok = newToken(token.LBRACE, l.curLit())
 	case '}':
 		tok = newToken(token.RBRACE, l.curLit())
+	case '[':
+		tok = newToken(token.LBRACKET, l.curLit())
+	case ']':
+		tok = newToken(token.RBRACKET, l.curLit())
+	case '"':
+		tok.Type = token.STRING
+		tok.Literal = l.readString()
 	case 0:
 		tok.Literal = ""
 		tok.Type = token.EOF
@@ -91,6 +97,17 @@ func (l *Lexer) NextToken() token.Token {
 	}
 	l.readChar()
 	return tok
+}
+
+func (l *Lexer) readString() string {
+	pos := l.pos + 1
+	for {
+		l.readChar()
+		if l.cur == '"' || l.cur == 0 {
+			break
+		}
+	}
+	return l.input[pos:l.pos]
 }
 
 func (l *Lexer) readIdentifier() string {
