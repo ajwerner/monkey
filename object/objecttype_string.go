@@ -4,9 +4,9 @@ package object
 
 import "strconv"
 
-const _ObjectType_name = "INTEGERBOOLEANNULLERRORFUNCTIONSTRINGBUILTINRETURN_VALUE"
+const _ObjectType_name = "INTEGERFLOATBOOLNULLERRORFUNCTIONSTRINGBUILTINARRAYHASHRETURN_VALUE"
 
-var _ObjectType_index = [...]uint8{0, 7, 14, 18, 23, 31, 37, 44, 56}
+var _ObjectType_index = [...]uint8{0, 7, 12, 16, 20, 25, 33, 39, 46, 51, 55, 67}
 
 func (i ObjectType) String() string {
 	i -= 1

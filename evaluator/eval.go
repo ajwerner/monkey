@@ -42,6 +42,8 @@ func Eval(node ast.Node, env *object.Environment) object.Object {
 		// Expressions
 	case *ast.IntegerLiteral:
 		return object.Integer(node.Value)
+	case *ast.FloatLiteral:
+		return object.Float(node.Value)
 	case *ast.StringLiteral:
 		return object.String(node.Value)
 	case *ast.FunctionLiteral:
@@ -220,9 +222,16 @@ func evalBangOperatorExpression(right object.Object) object.Object {
 
 func evalInfixExpression(operator string, left, right object.Object) object.Object {
 	lt, rt := left.Type(), right.Type()
+	if lt == object.INTEGER && rt == object.FLOAT {
+		left, lt = object.Float(left.(object.Integer)), object.FLOAT
+	} else if lt == object.FLOAT && rt == object.INTEGER {
+		right, rt = object.Float(right.(object.Integer)), object.FLOAT
+	}
 	switch {
 	case lt == object.INTEGER && rt == object.INTEGER:
 		return evalIntegerInfixExpression(operator, left.(object.Integer), right.(object.Integer))
+	case lt == object.FLOAT && rt == object.FLOAT:
+		return evalFloatInfixExpression(operator, left.(object.Float), right.(object.Float))
 	case lt == object.STRING && rt == object.STRING:
 		return evalStringInfixExpression(operator, left.(object.String), right.(object.String))
 	case operator == "==":
@@ -248,6 +257,30 @@ func evalStringInfixExpression(operator string, left, right object.String) objec
 }
 
 func evalIntegerInfixExpression(operator string, left, right object.Integer) object.Object {
+	switch operator {
+	case "+":
+		return left + right
+	case "-":
+		return left - right
+	case "*":
+		return left * right
+	case "/":
+		return left / right
+	case "<":
+		return object.Bool(left < right)
+	case ">":
+		return object.Bool(left > right)
+	case "==":
+		return object.Bool(left == right)
+	case "!=":
+		return object.Bool(left != right)
+	default:
+		return newError("unknown operator: %s %s %s",
+			left.Type(), operator, right.Type())
+	}
+}
+
+func evalFloatInfixExpression(operator string, left, right object.Float) object.Object {
 	switch operator {
 	case "+":
 		return left + right

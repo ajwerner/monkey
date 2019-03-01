@@ -11,162 +11,302 @@ import (
 
 // Lexer is used to lexagraphically analyze monkey source.
 type Lexer struct {
-	input   string
-	pos     int
-	readPos int
-	cur     rune
-	curSize int
-	err     error
+	cur token.Token
+	err error
+
+	state
 }
 
 // New creates a new Lexer for an input string.
 func New(input string) *Lexer {
-	l := &Lexer{input: input}
-	l.readChar()
-	return l
+	var l Lexer
+	initState(&l.state, input)
+	return &l
 }
 
-func (l *Lexer) NextToken() token.Token {
-	l.skipWhitespace()
-	var tok token.Token
-	switch l.cur {
-	case '=':
-		if l.peekChar() == '=' {
-			curPos := l.pos
-			l.readChar()
-			tok = newToken(token.EQ, l.input[curPos:l.pos+l.curSize])
+var zeroToken = token.Token{}
 
-		} else {
-			tok = newToken(token.ASSIGN, l.curLit())
-		}
-	case '+':
-		tok = newToken(token.PLUS, l.curLit())
-	case '-':
-		tok = newToken(token.MINUS, l.curLit())
-	case '!':
-		if l.peekChar() == '=' {
-			curPos := l.pos
-			l.readChar()
-			tok = newToken(token.NEQ, l.input[curPos:l.pos+l.curSize])
+func (l *Lexer) Next() bool {
+	if l.err == nil && l.cur.Type != token.EOF {
+		l.cur, l.err = lexNext(&l.state)
+	}
+	return l.err == nil
+}
 
-		} else {
-			tok = newToken(token.BANG, l.curLit())
+func (l *Lexer) Token() token.Token {
+	return l.cur
+}
+
+func (l *Lexer) Err() error {
+	return l.err
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// lexFuncs
+////////////////////////////////////////////////////////////////////////////////
+
+type lexFunc func(l *state) (cur token.Token, err error)
+
+func lexNext(s *state) (token.Token, error) {
+	next, err := s.skipWhitespace()
+	if err != nil {
+		return token.Token{}, err
+	}
+	if f := lexFuncs[next]; f != nil {
+		return f(s)
+	}
+	return lexDefault(s)
+}
+
+func lexDefault(s *state) (token.Token, error) {
+	next, _ := s.peek()
+	if isLetter(next) {
+		return lexIdentifier(s)
+	}
+	if next == '.' || isDecimal(next) {
+		return lexNumber(s)
+	}
+	return token.Token{}, fmt.Errorf("Illegal token %q at position %d", s.curLit(), s.tokPos)
+}
+
+func nextTok(typ token.TokenType) lexFunc {
+	return eat(litTok(typ))
+}
+
+func litTok(typ token.TokenType) lexFunc {
+	return func(s *state) (token.Token, error) {
+		return newToken(typ, s.curLit()), nil
+	}
+}
+
+func eat(f lexFunc) lexFunc {
+	return func(s *state) (token.Token, error) {
+		s.readRune()
+		return f(s)
+	}
+}
+
+var (
+	assign = litTok(token.ASSIGN)
+	bang   = litTok(token.BANG)
+	eq     = nextTok(token.EQ)
+	neq    = nextTok(token.NEQ)
+)
+
+var lexFuncs = map[rune]lexFunc{
+	'+': nextTok(token.PLUS),
+	'-': nextTok(token.MINUS),
+	'/': nextTok(token.SLASH),
+	'*': nextTok(token.STAR),
+	'<': nextTok(token.LT),
+	'>': nextTok(token.GT),
+	';': nextTok(token.SEMICOLON),
+	',': nextTok(token.COMMA),
+	'(': nextTok(token.LPAREN),
+	')': nextTok(token.RPAREN),
+	'{': nextTok(token.LBRACE),
+	'}': nextTok(token.RBRACE),
+	'[': nextTok(token.LBRACKET),
+	']': nextTok(token.RBRACKET),
+	':': nextTok(token.COLON),
+	'"': lexString,
+	0: func(s *state) (token.Token, error) {
+		return token.Token{Type: token.EOF}, nil
+	},
+	'=': func(s *state) (token.Token, error) {
+		next, err := s.readRune()
+		if err != nil {
+			return token.Token{}, err
 		}
-	case '/':
-		tok = newToken(token.SLASH, l.curLit())
-	case '*':
-		tok = newToken(token.STAR, l.curLit())
-	case '<':
-		tok = newToken(token.LT, l.curLit())
-	case '>':
-		tok = newToken(token.GT, l.curLit())
-	case ';':
-		tok = newToken(token.SEMICOLON, l.curLit())
-	case ',':
-		tok = newToken(token.COMMA, l.curLit())
-	case '(':
-		tok = newToken(token.LPAREN, l.curLit())
-	case ')':
-		tok = newToken(token.RPAREN, l.curLit())
-	case '{':
-		tok = newToken(token.LBRACE, l.curLit())
-	case '}':
-		tok = newToken(token.RBRACE, l.curLit())
-	case '[':
-		tok = newToken(token.LBRACKET, l.curLit())
-	case ']':
-		tok = newToken(token.RBRACKET, l.curLit())
-	case ':':
-		tok = newToken(token.COLON, l.curLit())
-	case '"':
-		tok.Type = token.STRING
-		tok.Literal = l.readString()
-	case 0:
-		tok.Literal = ""
-		tok.Type = token.EOF
-	default:
-		if isLetter(l.cur) {
-			tok.Literal = l.readIdentifier()
-			tok.Type = token.LookupIdent(tok.Literal)
-			return tok
-		} else if isDigit(l.cur) {
-			tok.Type = token.INT
-			tok.Literal = l.readNumber()
-			return tok
-		} else {
-			tok = newToken(token.ILLEGAL, l.curLit())
+		if next == '=' {
+			return eq(s)
+		}
+		return assign(s)
+	},
+	'!': func(s *state) (token.Token, error) {
+		next, err := s.readRune()
+		if err != nil {
+			return token.Token{}, err
+		}
+		if next == '=' {
+			return neq(s)
+		}
+		return bang(s)
+	},
+}
+
+func lexNumber(s *state) (token.Token, error) {
+	next, err := s.readDecimals()
+	typ := token.INT
+	if next == '.' {
+		typ = token.FLOAT
+		if next, err = s.readRune(); err != nil {
+			return token.Token{}, err
+		}
+		if !isDecimal(next) {
+			return token.Token{}, fmt.Errorf("Illegal character '%c' after . at position %d", next, s.readPos)
+		}
+		if next, err = s.readDecimals(); err != nil {
+			return token.Token{}, err
 		}
 	}
-	l.readChar()
-	return tok
+	if next == 'e' || next == 'E' {
+		typ = token.FLOAT
+		if next, err = s.readRune(); err != nil {
+			return token.Token{}, err
+		}
+		if next == '+' || next == '-' {
+			if next, err = s.readRune(); err != nil {
+				return token.Token{}, err
+			}
+		}
+		if _, err = s.readDecimals(); err != nil {
+			return token.Token{}, err
+		}
+	}
+	return token.Token{
+		Type:    typ,
+		Literal: s.curLit(),
+	}, nil
 }
 
-func (l *Lexer) readString() string {
-	pos := l.pos + 1
+func lexString(s *state) (token.Token, error) {
 	for {
-		l.readChar()
-		if l.cur == '"' || l.cur == 0 {
+		next, err := s.readRune()
+		if err != nil {
+			return token.Token{}, err
+		}
+		if next == 0 {
+			return token.Token{}, fmt.Errorf("unterminated string at position %d:%d", s.tokPos, s.readPos)
+		}
+		if next == '"' {
+			if _, err = s.readRune(); err != nil {
+				return token.Token{}, err
+			}
 			break
 		}
 	}
-	return l.input[pos:l.pos]
+	return token.Token{
+		Type:    token.STRING,
+		Literal: s.input[s.tokPos+1 : s.runePos],
+	}, nil
 }
 
-func (l *Lexer) readIdentifier() string {
-	pos := l.pos
-	for isLetter(l.cur) {
-		l.readChar()
+func lexIdentifier(s *state) (token.Token, error) {
+	next, err := s.peek()
+	for err == nil && isLetter(next) {
+		next, err = s.readRune()
 	}
-	return l.input[pos:l.pos]
+	if err != nil {
+		return token.Token{}, err
+	}
+	return token.Token{
+		Type:    token.LookupIdent(s.curLit()),
+		Literal: s.curLit(),
+	}, nil
 }
 
-func (l *Lexer) readNumber() string {
-	pos := l.pos
-	for isDigit(l.cur) {
-		l.readChar()
-	}
-	return l.input[pos:l.pos]
+////////////////////////////////////////////////////////////////////////////////
+// state
+////////////////////////////////////////////////////////////////////////////////
+
+type state struct {
+	input  string
+	tokPos int
+
+	rune     rune
+	runeSize int
+	runePos  int
+
+	peeked   bool
+	peekRune rune
+	peekSize int
+
+	readPos int
 }
 
-func (l *Lexer) peekChar() rune {
-	if l.readPos >= len(l.input) {
-		return 0
+func initState(s *state, input string) {
+	*s = state{
+		input: input,
 	}
-	r, _ := utf8.DecodeRuneInString(l.input[l.readPos:])
-	return r
 }
 
-func (l *Lexer) readChar() {
-	if l.readPos >= len(l.input) {
-		l.cur = 0
-		l.curSize = 0
-	} else {
-		l.cur, l.curSize = utf8.DecodeRuneInString(l.input[l.readPos:])
-		if l.cur == utf8.RuneError {
-			l.err = fmt.Errorf("failed to decode from utf8 at position %d", l.readPos)
-			l.cur = 0
-		}
+func (s *state) skipWhitespace() (next rune, err error) {
+	next, err = s.readWhitespace()
+	if err == nil {
+		s.reset()
 	}
-	l.pos = l.readPos
-	l.readPos += l.curSize
+	return next, err
 }
 
-func (l *Lexer) skipWhitespace() {
-	for unicode.IsSpace(l.cur) {
-		l.readChar()
-	}
+func (s *state) reset() {
+	s.tokPos = s.readPos
+	s.runePos = s.readPos
+	s.runeSize = 0
+	s.rune = 0
 }
+
+func (s *state) readWhitespace() (next rune, err error) {
+	next, err = s.peek()
+	for err == nil && unicode.IsSpace(next) {
+		next, err = s.readRune()
+	}
+	return next, err
+}
+
+func (l *state) readDecimals() (next rune, err error) {
+	next, err = l.peek()
+	for err == nil && isDecimal(next) {
+		next, err = l.readRune()
+	}
+	return
+}
+
+func (s *state) peek() (rune, error) {
+	if s.peeked {
+		return s.peekRune, nil
+	}
+	if s.readPos >= len(s.input) {
+		return 0, nil
+	}
+	s.peekRune, s.peekSize = utf8.DecodeRuneInString(s.input[s.readPos:])
+	s.peeked = true
+	if s.peekRune == utf8.RuneError {
+		return utf8.RuneError, fmt.Errorf("failed to decode from utf8 at position %d", s.readPos)
+	}
+	return s.peekRune, nil
+}
+
+// readRune reads consumes the next rune as part of the current token and
+// returns the next rune plus any error.
+func (s *state) readRune() (rune, error) {
+	if p, err := s.peek(); err != nil {
+		return p, err
+	}
+	s.rune = s.peekRune
+	s.runePos = s.readPos
+	s.readPos += s.peekSize
+	s.runeSize = s.peekSize
+	s.peeked = false
+	s.peekRune = 0
+	s.peekSize = 0
+	return s.peek()
+}
+
+func (s *state) curLit() string {
+	return s.input[s.tokPos:s.readPos]
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// helpers
+////////////////////////////////////////////////////////////////////////////////
 
 func isLetter(r rune) bool {
 	return unicode.IsLetter(r) || r == '_'
 }
 
-func isDigit(r rune) bool {
+func isDecimal(r rune) bool {
 	return unicode.IsDigit(r)
-}
-
-func (l *Lexer) curLit() string {
-	return l.input[l.pos : l.pos+l.curSize]
 }
 
 func newToken(tokenType token.TokenType, lit string) token.Token {

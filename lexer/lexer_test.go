@@ -46,6 +46,11 @@ if (5 < 10) {
 "foo bar"
 [1, 2];
 {"foo": "bar"}
+1.21
+
+2.11e12
+2.11e+12
+.12
 `,
 		tokenCases{
 			{token.LET, "let"},
@@ -134,6 +139,10 @@ if (5 < 10) {
 			{token.COLON, ":"},
 			{token.STRING, "bar"},
 			{token.RBRACE, "}"},
+			{token.FLOAT, "1.21"},
+			{token.FLOAT, "2.11e12"},
+			{token.FLOAT, "2.11e+12"},
+			{token.FLOAT, ".12"},
 			{token.EOF, ""},
 		},
 	},
@@ -152,7 +161,10 @@ type testCase struct {
 func (c *testCase) run(t *testing.T) {
 	l := New(c.input)
 	for i, tc := range c.cases {
-		tok := l.NextToken()
+		if ok := l.Next(); !ok {
+			t.Fatalf("tests[%d] - no token %v", i, l.Err())
+		}
+		tok := l.Token()
 		if tok.Type != tc.expectedType {
 			t.Fatalf("tests[%d] - tokentype wrong. expected %q, got %q",
 				i, tc.expectedType, tok.Type)

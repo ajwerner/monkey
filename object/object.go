@@ -16,6 +16,7 @@ type ObjectType int
 const (
 	_ ObjectType = iota
 	INTEGER
+	FLOAT
 	BOOL
 	NULL
 	ERROR
@@ -104,6 +105,11 @@ type Integer int64
 
 func (i Integer) Type() ObjectType { return INTEGER }
 func (i Integer) Inspect() string  { return fmt.Sprintf("%d", i) }
+
+type Float float64
+
+func (f Float) Type() ObjectType { return FLOAT }
+func (f Float) Inspect() string  { return fmt.Sprintf("%f", f) }
 
 type Object interface {
 	Type() ObjectType
